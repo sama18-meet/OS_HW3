@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <pthread.h>
 #include <stdio.h>
-// 
+//
 // server.c: A very, very simple web server
 //
 // To run:
@@ -19,8 +19,8 @@ enum SchedAlg {BLOCK, DT, DH, RANDOM};
 void getargs(int *port, int* threads, int* queue_size, enum SchedAlg* schedalg, int argc, char *argv[])
 {
     if (argc != 5) {
-	fprintf(stderr, "Usage: %s <port> <threads> <queue_size> <schedalg>\n", argv[0]);
-	exit(1);
+        fprintf(stderr, "Usage: %s <port> <threads> <queue_size> <schedalg>\n", argv[0]);
+        exit(1);
     }
     *port = atoi(argv[1]);
     *threads = atoi(argv[2]);
@@ -35,16 +35,21 @@ void getargs(int *port, int* threads, int* queue_size, enum SchedAlg* schedalg, 
     else if (strcmp("random", argv[4]) == 0) { *schedalg = RANDOM; }
     else {
         fprintf(stderr, "schedalg must be one of block/dt/dh/random\n");
-	exit(0);
+        exit(0);
     }
 
 }
 
-pthread_mutex_t queue_mutex;
-pthread_cond_t queue_not_empty;
-pthread_cond_t queue_not_full;
+pthread_mutex_t queue_mutex;///no one change the req_mux and waiting
+pthread_mutex_t active_queue_mutex;///////no one change the active queue
+
+pthread_cond_t queue_not_empty;///send when not empty
+pthread_cond_t queue_not_full;///send when not full
+
 int* waiting_connections_queue;
 int* active_connections_list;
+ClientRequest* requestsArray;
+
 int active_connections_counter;
 int waiting_connections_counter;
 
@@ -56,29 +61,83 @@ int dequeueConnection() {
         pthread_cond_wait(&queue_not_empty, &queue_mutex);
     }
 
+    ////port3
+    struct timeval nowDispatching;
+    gettimeofday(&nowDispatching, NULL);
+    //////////////////////////////////////
     connfd = waiting_connections_queue[0];
     for (int i = 0; i < waiting_connections_counter - 1; i++) {
         waiting_connections_queue[i] = waiting_connections_queue[i + 1];
     }
+
+    requestsArray[0]->request_dispatch=nowDispatching;
+
     waiting_connections_counter--;
     active_connections_list[active_connections_counter++] = connfd;
     pthread_mutex_unlock(&queue_mutex);
     return connfd;
 }
 
-void enqueueConnection(int connfd, int max_queue_size) { // TODO: remove second arg and assert
-    pthread_mutex_lock(&queue_mutex);
-    waiting_connections_queue[waiting_connections_counter++] = connfd;
-    pthread_cond_signal(&queue_not_empty);
-    pthread_mutex_unlock(&queue_mutex);
+void enqueueConnection(int connfd, int max_queue_size, struct timeval req_arrival) { // TODO: remove second arg and assert
+    //pthread_mutex_lock(&queue_mutex); ///no need ,someone here is already have the lock
+
+    waiting_connections_queue[waiting_connections_counter] = connfd;
+
+    requestsArray[waiting_connections_counter]->request_arrival=req_arrival;
+    requestsArray[waiting_connections_counter]->request_fd=connfd;
+
+    waiting_connections_counter++;
+
+    //pthread_cond_signal(&queue_not_empty);
+    //pthread_mutex_unlock(&queue_mutex);//check
+
     assert(waiting_connections_counter+active_connections_counter <= max_queue_size);
 }
 
-void* startHandlerThread(void* args) {
+void *startHandlerThread(void* args) {
+
     while (1) {
-        int connfd = dequeueConnection();
-	requestHandle(connfd);
-	Close(connfd);
+        pthread_mutex_lock(&queue_mutex);
+        while (waiting_connections_counter == 0) {
+            pthread_cond_wait(&queue_not_empty, &queue_mutex);
+        }
+
+        ////port3
+        struct timeval nowDispatching;
+        gettimeofday(&nowDispatching, NULL);
+        //////////////////////////////////////
+        int connfd = waiting_connections_queue[0];
+        for (int i = 0; i < waiting_connections_counter - 1; i++) {
+            waiting_connections_queue[i] = waiting_connections_queue[i + 1];
+        }
+///handle the queue
+        ClientRequest Curr= malloc(sizeof (ClientRequest));
+        Curr->request_dispatch=nowDispatching;
+        Curr->request_dispatch=requestsArray[0]->request_arrival;
+        Curr->request_fd=connfd;
+
+        for (int i = 0; i < waiting_connections_counter; ++i) {
+            requestsArray[i]->request_fd=requestsArray[i+1]->request_fd;
+            requestsArray[i]->request_dispatch=requestsArray[i+1]->request_dispatch;
+            requestsArray[i]->request_arrival=requestsArray[i+1]->request_arrival;
+        }
+        waiting_connections_counter--;
+
+        pthread_mutex_unlock(&queue_mutex);
+//////////////////////////////////////////////////////////////////////////
+        pthread_mutex_lock(&active_queue_mutex);
+        active_connections_list[active_connections_counter++] = connfd;
+        pthread_mutex_unlock(&active_queue_mutex);
+/////////////////////////////////////////////////////////////////////////
+        requestHandle(Curr->request_fd);
+        Close(Curr->request_fd);
+///////////////////////////////////////////////////////////////////////////
+        pthread_mutex_lock(&active_queue_mutex);
+        active_connections_counter--;
+        pthread_mutex_unlock(&active_queue_mutex);
+
+        pthread_cond_broadcast(&queue_not_full); //brodcast or signal ? // and when?
+
     }
 }
 
@@ -100,11 +159,20 @@ int main(int argc, char *argv[])
     if (active_connections_list == NULL) {
         exit(1);
     }
+
+    requestsArray = (ClientRequest*)malloc(queue_size * sizeof(ClientRequest*)); /// for part3
+    for (int i=0; i < queue_size; ++i){
+        requestsArray[i] =  malloc(sizeof(struct clientRequest));
+    }
+
     active_connections_counter = 0;
     waiting_connections_counter = 0;
 
+///init all
     pthread_mutex_init(&queue_mutex, NULL);
+    pthread_mutex_init(&active_queue_mutex,NULL);
     pthread_cond_init(&queue_not_empty, NULL);
+    pthread_cond_init(&queue_not_full, NULL);
 
     // thread pool
     pthread_t* threadpool = malloc(sizeof(pthread_t)*threads);
@@ -117,54 +185,67 @@ int main(int argc, char *argv[])
             exit(1);
         }
     }
+
+
     listenfd = Open_listenfd(port); // open and return a listening socket on port
+
 
     /////now we need to listen
     while (1) {
         clientlen = sizeof(clientaddr);
         connfd = Accept(listenfd, (SA *) &clientaddr, (socklen_t *) &clientlen);
         ////for part 3
-
+        struct timeval now_arriving;
+        gettimeofday(&now_arriving, NULL);
 
         ///////here starts the fun
+        pthread_mutex_lock(&queue_mutex);//no one should change here but me,no other god here except me
         while (waiting_connections_counter + active_connections_counter >= queue_size) {
-            pthread_mutex_lock(&queue_mutex);//no one should change here but me,no other god here except me
 
             if (schedalg == BLOCK) {
                 // TODO: Change this to block instead of busy wait // done
                 pthread_cond_wait(&queue_not_full, &queue_mutex); // wait till queue_not_full
-            } else if (schedalg == DT) { /// we drop this request
+            }
+            else if (schedalg == DT) { /// we drop this request
                 if (waiting_connections_counter==0)
                 {
                     close(connfd);
-                    break;
                 }
-                int freshest = waiting_connections_queue[waiting_connections_counter-1]; //sama made sure that the oldest is always in 0 ?
+                int freshest = waiting_connections_queue[waiting_connections_counter--]; //sama made sure that the oldest is always in 0 ?
                 close(freshest);
-            } else if (schedalg == DH) {
+
+            }
+            else if (schedalg == DH) {
                 if (waiting_connections_counter==0)
                 {
                     close(connfd);
-                    break;
                 }
                 int oldestRequest = waiting_connections_queue[0]; //sama made sure that the oldest is always in 0 ?
                 close(oldestRequest);
-
+                for (int i = 0; i < waiting_connections_counter; ++i) {
+                    requestsArray[i]->request_fd=requestsArray[i+1]->request_fd;
+                    requestsArray[i]->request_dispatch=requestsArray[i+1]->request_dispatch;
+                    requestsArray[i]->request_arrival=requestsArray[i+1]->request_arrival;
+                }
+                    waiting_connections_counter--;
             } else if (schedalg == RANDOM) {
 
             }
         }
+        ////if no need for using our policy , simply insert
 
+        enqueueConnection(connfd,queue_size,now_arriving);
 
         pthread_mutex_unlock(&queue_mutex);
+        pthread_cond_signal(&queue_not_empty);
     }
 
 
-	    // 
-	    // HW3: In general, don't handle the request in the main thread.
-	    // Save the relevant info in a buffer and have one of the worker threads 
-	    // do the work. 
-	    // 
+    //
+    // HW3: In general, don't handle the request in the main thread.
+    // Save the relevant info in a buffer and have one of the worker threads
+    // do the work.
+    //
 
 
 
