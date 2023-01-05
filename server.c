@@ -1,7 +1,8 @@
 #include "segel.h"
 #include "request.h"
 #include <assert.h>
-
+#include <pthread.h>
+#include <stdio.h>
 // 
 // server.c: A very, very simple web server
 //
@@ -41,7 +42,7 @@ void getargs(int *port, int* threads, int* queue_size, enum SchedAlg* schedalg, 
 
 pthread_mutex_t queue_mutex;
 pthread_cond_t queue_not_empty;
-
+pthread_cond_t queue_not_full;
 int* waiting_connections_queue;
 int* active_connections_list;
 int active_connections_counter;
@@ -50,7 +51,6 @@ int waiting_connections_counter;
 
 int dequeueConnection() {
     int connfd;
-
     pthread_mutex_lock(&queue_mutex);
     while (waiting_connections_counter == 0) {
         pthread_cond_wait(&queue_not_empty, &queue_mutex);
@@ -118,21 +118,55 @@ int main(int argc, char *argv[])
         }
     }
     listenfd = Open_listenfd(port); // open and return a listening socket on port
-    if (schedalg == BLOCK) {
-        while (1) {
-            if (active_connections_counter < threads) { // TODO: Change this to block instead of busy wait
-	        clientlen = sizeof(clientaddr);
-	        connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
-                enqueueConnection(connfd, queue_size);
+
+    /////now we need to listen
+    while (1) {
+        clientlen = sizeof(clientaddr);
+        connfd = Accept(listenfd, (SA *) &clientaddr, (socklen_t *) &clientlen);
+        ////for part 3
+
+
+        ///////here starts the fun
+        while (waiting_connections_counter + active_connections_counter >= queue_size) {
+            pthread_mutex_lock(&queue_mutex);//no one should change here but me,no other god here except me
+
+            if (schedalg == BLOCK) {
+                // TODO: Change this to block instead of busy wait // done
+                pthread_cond_wait(&queue_not_full, &queue_mutex); // wait till queue_not_full
+            } else if (schedalg == DT) { /// we drop this request
+                if (waiting_connections_counter==0)
+                {
+                    close(connfd);
+                    break;
+                }
+                int freshest = waiting_connections_queue[waiting_connections_counter-1]; //sama made sure that the oldest is always in 0 ?
+                close(freshest);
+            } else if (schedalg == DH) {
+                if (waiting_connections_counter==0)
+                {
+                    close(connfd);
+                    break;
+                }
+                int oldestRequest = waiting_connections_queue[0]; //sama made sure that the oldest is always in 0 ?
+                close(oldestRequest);
+
+            } else if (schedalg == RANDOM) {
+
             }
+        }
+
+
+        pthread_mutex_unlock(&queue_mutex);
+    }
+
 
 	    // 
 	    // HW3: In general, don't handle the request in the main thread.
 	    // Save the relevant info in a buffer and have one of the worker threads 
 	    // do the work. 
 	    // 
-        }
-    }
+
+
 
     for (int i=0; i<threads; ++i) {
         if (pthread_join(threadpool[i], NULL) != 0) {
