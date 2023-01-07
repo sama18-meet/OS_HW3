@@ -9,6 +9,5 @@ typedef struct clientRequest{
     struct timeval request_dispatch;
 } *ClientRequest;
 
-void requestHandle(int fd);
-
+void requestHandle(int fd, ClientRequest Curr);
 #endif

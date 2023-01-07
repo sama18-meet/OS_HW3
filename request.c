@@ -101,29 +101,35 @@ void requestGetFiletype(char *filename, char *filetype)
       strcpy(filetype, "text/plain");
 }
 
-void requestServeDynamic(int fd, char *filename, char *cgiargs)
+void requestServeDynamic(int fd, char *filename, char *cgiargs,ClientRequest Curr)
 {
    char buf[MAXLINE], *emptylist[] = {NULL};
 
+    struct timeval time;
+    timersub(&Curr->request_dispatch,&Curr->request_arrival,&time);
    // The server does only a little bit of the header.  
    // The CGI script has to finish writing out the header.
    sprintf(buf, "HTTP/1.0 200 OK\r\n");
    sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
+   //i add
+   sprintf(buf, "%sStat-Req-Arrival:: %lu.%06lu\r\n", buf, Curr->request_arrival.tv_sec, Curr->request_arrival.tv_usec);
+   sprintf(buf, "%sStat-Req-Dispatch:: %lu.%06lu\r\n", buf, time.tv_sec, time.tv_usec);
+
 
    Rio_writen(fd, buf, strlen(buf));
-
-   if (Fork() == 0) {
+   pid_t child;
+   if ((child=Fork()) == 0) {
       /* Child process */
       Setenv("QUERY_STRING", cgiargs, 1);
       /* When the CGI process writes to stdout, it will instead go to the socket */
       Dup2(fd, STDOUT_FILENO);
       Execve(filename, emptylist, environ);
    }
-   Wait(NULL);
+    WaitPid(child, NULL, 0);
 }
 
 
-void requestServeStatic(int fd, char *filename, int filesize) 
+void requestServeStatic(int fd, char *filename, int filesize, ClientRequest Curr)
 {
    int srcfd;
    char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -136,12 +142,15 @@ void requestServeStatic(int fd, char *filename, int filesize)
    // which would require that we allocate a buffer, we memory-map the file
    srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
    Close(srcfd);
-
+    struct timeval time;
+    timersub(&Curr->request_dispatch,&Curr->request_arrival,&time);
    // put together response
    sprintf(buf, "HTTP/1.0 200 OK\r\n");
    sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
    sprintf(buf, "%sContent-Length: %d\r\n", buf, filesize);
    sprintf(buf, "%sContent-Type: %s\r\n\r\n", buf, filetype);
+   sprintf(buf, "%sStat-Req-Arrival:: %lu.%06lu\r\n", buf, Curr->request_arrival.tv_sec, Curr->request_arrival.tv_usec);
+   sprintf(buf, "%sStat-Req-Dispatch:: %lu.%06lu\r\n", buf, time.tv_sec, time.tv_usec);
 
    Rio_writen(fd, buf, strlen(buf));
 
@@ -152,9 +161,8 @@ void requestServeStatic(int fd, char *filename, int filesize)
 }
 
 // handle a request
-void requestHandle(int fd)
+void requestHandle(int fd, ClientRequest Curr)
 {
-
    int is_static;
    struct stat sbuf;
    char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
@@ -179,18 +187,18 @@ void requestHandle(int fd)
       return;
    }
 
-   if (is_static) {
+   if (is_static) { ///here we know the requset is stat
       if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) {
          requestError(fd, filename, "403", "Forbidden", "OS-HW3 Server could not read this file");
          return;
       }
-      requestServeStatic(fd, filename, sbuf.st_size);
-   } else {
+      requestServeStatic(fd, filename, sbuf.st_size,Curr);
+   } else { /// here we know its dainamic
       if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
          requestError(fd, filename, "403", "Forbidden", "OS-HW3 Server could not run this CGI program");
          return;
       }
-      requestServeDynamic(fd, filename, cgiargs);
+      requestServeDynamic(fd, filename, cgiargs,Curr);
    }
 }
 
