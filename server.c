@@ -53,7 +53,7 @@ int active_connections_counter;
 int waiting_connections_counter;
 
 
-int dequeueConnection() {
+/*int dequeueConnection() {
     int connfd;
     pthread_mutex_lock(&queue_mutex);
     while (waiting_connections_counter == 0) {
@@ -76,27 +76,20 @@ int dequeueConnection() {
     pthread_mutex_unlock(&queue_mutex);
     return connfd;
 }
-
-void enqueueConnection(int connfd, int max_queue_size, struct timeval req_arrivaltime) { // TODO: remove second arg and assert
+*/
+void enqueueConnection(int connfd, int max_queue_size, struct timeval req_arrival_time) { // TODO: remove second arg and assert
     //pthread_mutex_lock(&queue_mutex); ///no need ,someone here is already have the lock
 
     waiting_connections_queue[waiting_connections_counter] = connfd;
     requestsArray[waiting_connections_counter]->request_fd=connfd;
-    struct timeval now_arriving;
-    gettimeofday(&now_arriving, NULL);
 
-    requestsArray[waiting_connections_counter]->request_arrival=now_arriving;
-
-   // requestsArray[waiting_connections_counter]->request_arrival=req_arrivaltime;
+    requestsArray[waiting_connections_counter]->request_arrival=req_arrival_time;
 
     waiting_connections_counter++;
 
 
     pthread_cond_signal(&queue_not_empty);
     pthread_mutex_unlock(&queue_mutex);//check
-
-
-    assert(waiting_connections_counter+active_connections_counter <= max_queue_size);
 }
 
 void *startHandlerThread(void* args) {
@@ -109,6 +102,9 @@ void *startHandlerThread(void* args) {
         ////part3
         struct timeval nowDispatching;
         gettimeofday(&nowDispatching, NULL);
+        ClientRequest Curr= requestsArray[0];
+        Curr->request_dispatch=nowDispatching;
+        fprintf(stderr,"Stat-Req-Dispatch:: %ld.%06ld\r\n", Curr->request_dispatch.tv_sec, Curr->request_dispatch.tv_usec);
         //////////////////////////////////////
         int connfd = waiting_connections_queue[0];
         for (int i = 0; i < waiting_connections_counter - 1; i++) {
@@ -116,8 +112,9 @@ void *startHandlerThread(void* args) {
         }
 ///handle the queue
 
-        ClientRequest Curr= malloc(sizeof (ClientRequest));
-        Curr->request_dispatch=nowDispatching;
+
+
+
         Curr->request_arrival=requestsArray[0]->request_arrival;
         Curr->request_fd=connfd;
 
@@ -135,10 +132,9 @@ void *startHandlerThread(void* args) {
         pthread_mutex_unlock(&active_queue_mutex);
 
 /////////////////////////////////////////////////////////////////////////
-
+        fprintf(stderr,"Stat-Req-Dispatch:: %ld.%06ld\r\n", Curr->request_dispatch.tv_sec, Curr->request_dispatch.tv_usec);
         requestHandle(Curr->request_fd,Curr);
         Close(Curr->request_fd);
-        free(Curr);
 ///////////////////////////////////////////////////////////////////////////
         pthread_mutex_lock(&active_queue_mutex);
         active_connections_counter--;
@@ -171,6 +167,7 @@ int main(int argc, char *argv[])
     for (int i=0; i < queue_size; ++i){
         requestsArray[i] =  malloc(sizeof(struct clientRequest));
     }
+
     active_connections_counter = 0;
     waiting_connections_counter = 0;
 
@@ -213,13 +210,7 @@ int main(int argc, char *argv[])
                 pthread_cond_wait(&queue_not_full, &queue_mutex); // wait till queue_not_full
             }
             else if (schedalg == DT) { /// we drop this request
-                if (waiting_connections_counter==0)
-                {
                     close(connfd);
-                }
-                int freshest = waiting_connections_queue[waiting_connections_counter--]; //sama made sure that the oldest is always in 0 ?
-                close(freshest);
-
             }
             else if (schedalg == DH) {
                 if (waiting_connections_counter==0)
@@ -230,7 +221,6 @@ int main(int argc, char *argv[])
                 close(oldestRequest);
                 for (int i = 0; i < waiting_connections_counter; ++i) {
                     requestsArray[i]->request_fd=requestsArray[i+1]->request_fd;
-                    requestsArray[i]->request_dispatch=requestsArray[i+1]->request_dispatch;
                     requestsArray[i]->request_arrival=requestsArray[i+1]->request_arrival;
                 }
                     waiting_connections_counter--;
