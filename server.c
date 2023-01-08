@@ -87,9 +87,6 @@ void enqueueConnection(int connfd, int max_queue_size, struct timeval req_arriva
 
     waiting_connections_counter++;
 
-
-    pthread_cond_signal(&queue_not_empty);
-    pthread_mutex_unlock(&queue_mutex);//check
 }
 
 void *startHandlerThread(void* args) {
@@ -104,16 +101,12 @@ void *startHandlerThread(void* args) {
         gettimeofday(&nowDispatching, NULL);
         ClientRequest Curr= requestsArray[0];
         Curr->request_dispatch=nowDispatching;
-        fprintf(stderr,"Stat-Req-Dispatch:: %ld.%06ld\r\n", Curr->request_dispatch.tv_sec, Curr->request_dispatch.tv_usec);
         //////////////////////////////////////
         int connfd = waiting_connections_queue[0];
         for (int i = 0; i < waiting_connections_counter - 1; i++) {
             waiting_connections_queue[i] = waiting_connections_queue[i + 1];
         }
 ///handle the queue
-
-
-
 
         Curr->request_arrival=requestsArray[0]->request_arrival;
         Curr->request_fd=connfd;
@@ -132,16 +125,15 @@ void *startHandlerThread(void* args) {
         pthread_mutex_unlock(&active_queue_mutex);
 
 /////////////////////////////////////////////////////////////////////////
-        fprintf(stderr,"Stat-Req-Dispatch:: %ld.%06ld\r\n", Curr->request_dispatch.tv_sec, Curr->request_dispatch.tv_usec);
         requestHandle(Curr->request_fd,Curr);
         Close(Curr->request_fd);
 ///////////////////////////////////////////////////////////////////////////
         pthread_mutex_lock(&active_queue_mutex);
         active_connections_counter--;
-        pthread_mutex_unlock(&active_queue_mutex);
 
         pthread_cond_signal(&queue_not_full); //brodcast or signal ? // and when?
-
+        pthread_mutex_unlock(&active_queue_mutex);
+        
     }
 }
 
@@ -219,9 +211,12 @@ int main(int argc, char *argv[])
                 }
                 int oldestRequest = waiting_connections_queue[0]; //sama made sure that the oldest is always in 0 ?
                 close(oldestRequest);
-                for (int i = 0; i < waiting_connections_counter; ++i) {
+                for (int i = 0; i < waiting_connections_counter-1; ++i) {
                     requestsArray[i]->request_fd=requestsArray[i+1]->request_fd;
                     requestsArray[i]->request_arrival=requestsArray[i+1]->request_arrival;
+                }
+                for (int i = 0; i < waiting_connections_counter-1; ++i) {
+                    waiting_connections_queue[i]=waiting_connections_queue[i+1];
                 }
                     waiting_connections_counter--;
             } else if (schedalg == RANDOM) {
@@ -232,8 +227,8 @@ int main(int argc, char *argv[])
 
         enqueueConnection(connfd,queue_size,now_arriving);
 
-     //   pthread_cond_signal(&queue_not_empty);
-      //  pthread_mutex_unlock(&queue_mutex);
+        pthread_cond_signal(&queue_not_empty);
+        pthread_mutex_unlock(&queue_mutex);
     }
 
 
