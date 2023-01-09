@@ -119,13 +119,14 @@ void *startHandlerThread(void* args) {
         pthread_mutex_unlock(&queue_mutex);
 
 //////////////////////////////////////////////////////////////////////////
+// POTENTIAL BUG:: Should active_connections and waiting connections have the same mutex?
 
         pthread_mutex_lock(&active_queue_mutex);
         active_connections_list[active_connections_counter++] = connfd;
         pthread_mutex_unlock(&active_queue_mutex);
 
 /////////////////////////////////////////////////////////////////////////
-        requestHandle(Curr->request_fd,Curr);
+        requestHandle(Curr->request_fd,Curr, (ThreadStats*)args);
         Close(Curr->request_fd);
 ///////////////////////////////////////////////////////////////////////////
         pthread_mutex_lock(&active_queue_mutex);
@@ -172,13 +173,20 @@ int main(int argc, char *argv[])
 
     // thread pool
     pthread_t* threadpool = malloc(sizeof(pthread_t)*threads);
-    if (threadpool == NULL) {
+    ThreadStats* threadStatsArr = malloc(sizeof(ThreadStats)*threads);
+    if (threadpool == NULL || threadStatsArr == NULL) {
         exit(1);
     }
     for (int i=0; i<threads; ++i) {
-        if (pthread_create(&threadpool[i], NULL, &startHandlerThread, NULL) != 0) {
+        if (pthread_create(&threadpool[i], NULL, &startHandlerThread, (void*) &(threadStatsArr[i])) != 0) {
             perror("Failed to create thread");
             exit(1);
+        }
+        else {
+            threadStatsArr[i].threadId = i;
+            threadStatsArr[i].totalRequests = 0;
+            threadStatsArr[i].staticRequests = 0;
+            threadStatsArr[i].dynamicRequests = 0;
         }
     }
 
