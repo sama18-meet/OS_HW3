@@ -12,7 +12,7 @@ typedef struct clientRequest{
    // int current_index;
     struct timeval request_arrival;
     struct timeval request_dispatch;
-} *ClientRequest;
+} ClientRequest;
 
 void requestHandle(int fd, ClientRequest Curr, ThreadStats* threadStats);
 #endif

@@ -11,7 +11,7 @@ void requestError(int fd, char *cause, char *errnum, char *shortmsg, char *longm
    char buf[MAXLINE], body[MAXBUF];
 
     struct timeval time;
-    timersub(&Curr->request_dispatch,&Curr->request_arrival,&time);
+    timersub(&Curr.request_dispatch,&Curr.request_arrival,&time);
 
 
     // Create the body of the error message
@@ -28,7 +28,7 @@ void requestError(int fd, char *cause, char *errnum, char *shortmsg, char *longm
 
     sprintf(buf, "Content-Type: text/html\r\n");
     sprintf(buf, "Content-Length: %lu\r\n", strlen(body));
-    sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr->request_arrival.tv_sec, Curr->request_arrival.tv_usec);
+    sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr.request_arrival.tv_sec, Curr.request_arrival.tv_usec);
     sprintf(buf, "%sStat-Req-Dispatch:: %ld.%06ld\r\n", buf, time.tv_sec, time.tv_usec);
    sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, threadStats->threadId);
    sprintf(buf, "%sStat-Thread-Count:: %d\r\n", buf, threadStats->totalRequests);
@@ -116,13 +116,13 @@ void requestServeDynamic(int fd, char *filename, char *cgiargs,ClientRequest Cur
    char buf[MAXLINE], *emptylist[] = {NULL};
 
     struct timeval time;
-    timersub(&Curr->request_dispatch,&Curr->request_arrival,&time);
+    timersub(&Curr.request_dispatch,&Curr.request_arrival,&time);
    // The server does only a little bit of the header.  
    // The CGI script has to finish writing out the header.
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
 
-   sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr->request_arrival.tv_sec, Curr->request_arrival.tv_usec);
+   sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr.request_arrival.tv_sec, Curr.request_arrival.tv_usec);
    sprintf(buf, "%sStat-Req-Dispatch:: %ld.%06ld\r\n", buf, time.tv_sec, time.tv_usec);
    sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, threadStats->threadId);
    sprintf(buf, "%sStat-Thread-Count:: %d\r\n", buf, threadStats->totalRequests);
@@ -160,13 +160,13 @@ void requestServeStatic(int fd, char *filename, int filesize,ClientRequest Curr,
    srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
    Close(srcfd);
     struct timeval time;
-    timersub(&Curr->request_dispatch,&Curr->request_arrival,&time);
+    timersub(&Curr.request_dispatch,&Curr.request_arrival,&time);
    // put together response
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
     sprintf(buf, "%sContent-Length: %d\r\n", buf, filesize);
     sprintf(buf, "%sContent-Type: %s\r\n", buf, filetype);
-   sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr->request_arrival.tv_sec, Curr->request_arrival.tv_usec);
+   sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr.request_arrival.tv_sec, Curr.request_arrival.tv_usec);
    sprintf(buf, "%sStat-Req-Dispatch:: %ld.%06ld\r\n", buf, time.tv_sec, time.tv_usec);
    sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, threadStats->threadId);
    sprintf(buf, "%sStat-Thread-Count:: %d\r\n", buf, threadStats->totalRequests);

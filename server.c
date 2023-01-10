@@ -180,7 +180,8 @@ int main(int argc, char *argv[])
                 if (waiting_connections_counter==0)
                 {
                     close(connfd);
-                    pthread_mutex_unlock(&queue_mutex);
+                    we_listen=true;
+                    break;
                 }
                 waiting_connections_counter--;
                 int oldestRequest = requestsArray[0].request_fd; //sama made sure that the oldest is always in 0 ?
@@ -189,9 +190,10 @@ int main(int argc, char *argv[])
                     requestsArray[i].request_fd = requestsArray[i + 1].request_fd;
                     requestsArray[i].request_arrival = requestsArray[i + 1].request_arrival;
                 }
-                pthread_mutex_unlock(&queue_mutex);
-
-            } else if (schedalg == RANDOM) {
+                we_listen=true;
+                break;
+            }
+            else if (schedalg == RANDOM) {
 
             }
         }
