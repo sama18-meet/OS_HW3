@@ -13,8 +13,23 @@ void requestError(int fd, char *cause, char *errnum, char *shortmsg, char *longm
     struct timeval time;
     timersub(&Curr->request_dispatch,&Curr->request_arrival,&time);
 
-   sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr->request_arrival.tv_sec, Curr->request_arrival.tv_usec);
-   sprintf(buf, "%sStat-Req-Dispatch:: %ld.%06ld\r\n", buf, time.tv_sec, time.tv_usec);
+
+    // Create the body of the error message
+    sprintf(body, "<html><title>OS-HW3 Error</title>");
+    sprintf(body, "%s<body bgcolor=""fffff"">\r\n", body);
+    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
+    sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
+    sprintf(body, "%s<hr>OS-HW3 Web Server\r\n", body);
+
+    // Write out the header information for this response
+    sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
+    Rio_writen(fd, buf, strlen(buf));
+    printf("%s", buf);
+
+    sprintf(buf, "Content-Type: text/html\r\n");
+    sprintf(buf, "Content-Length: %lu\r\n", strlen(body));
+    sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr->request_arrival.tv_sec, Curr->request_arrival.tv_usec);
+    sprintf(buf, "%sStat-Req-Dispatch:: %ld.%06ld\r\n", buf, time.tv_sec, time.tv_usec);
    sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, threadStats->threadId);
    sprintf(buf, "%sStat-Thread-Count:: %d\r\n", buf, threadStats->totalRequests);
    sprintf(buf, "%sStat-Thread-Static:: %d\r\n", buf, threadStats->staticRequests);
@@ -22,28 +37,7 @@ void requestError(int fd, char *cause, char *errnum, char *shortmsg, char *longm
 
    Rio_writen(fd, buf, strlen(buf));
    printf("%s", buf);
-
-   // Create the body of the error message
-   sprintf(body, "<html><title>OS-HW3 Error</title>");
-   sprintf(body, "%s<body bgcolor=""fffff"">\r\n", body);
-   sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
-   sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
-   sprintf(body, "%s<hr>OS-HW3 Web Server\r\n", body);
-
-   // Write out the header information for this response
-   sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
-   Rio_writen(fd, buf, strlen(buf));
-   printf("%s", buf);
-
-   sprintf(buf, "Content-Type: text/html\r\n");
-   Rio_writen(fd, buf, strlen(buf));
-   printf("%s", buf);
-
-   sprintf(buf, "Content-Length: %lu\r\n\r\n", strlen(body));
-   Rio_writen(fd, buf, strlen(buf));
-   printf("%s", buf);
-
-
+   
    // Write out the content
    Rio_writen(fd, body, strlen(body));
    printf("%s", body);
@@ -125,17 +119,18 @@ void requestServeDynamic(int fd, char *filename, char *cgiargs,ClientRequest Cur
     timersub(&Curr->request_dispatch,&Curr->request_arrival,&time);
    // The server does only a little bit of the header.  
    // The CGI script has to finish writing out the header.
-   sprintf(buf, "HTTP/1.0 200 OK\r\n");
-   sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
-   //i add
+    sprintf(buf, "HTTP/1.0 200 OK\r\n");
+    sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
+
    sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr->request_arrival.tv_sec, Curr->request_arrival.tv_usec);
    sprintf(buf, "%sStat-Req-Dispatch:: %ld.%06ld\r\n", buf, time.tv_sec, time.tv_usec);
    sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, threadStats->threadId);
    sprintf(buf, "%sStat-Thread-Count:: %d\r\n", buf, threadStats->totalRequests);
    sprintf(buf, "%sStat-Thread-Static:: %d\r\n", buf, threadStats->staticRequests);
-   sprintf(buf, "%sStat-Thread-Dynamic:: %d\r\n\r\n", buf, threadStats->dynamicRequests);
+   sprintf(buf, "%sStat-Thread-Dynamic:: %d\r\n", buf, threadStats->dynamicRequests);
 
    Rio_writen(fd, buf, strlen(buf));
+
    pid_t child;
    if ((child=Fork()) == 0) {
       /* Child process */
@@ -167,10 +162,10 @@ void requestServeStatic(int fd, char *filename, int filesize,ClientRequest Curr,
     struct timeval time;
     timersub(&Curr->request_dispatch,&Curr->request_arrival,&time);
    // put together response
-   sprintf(buf, "HTTP/1.0 200 OK\r\n");
-   sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
-   sprintf(buf, "%sContent-Length: %d\r\n", buf, filesize);
-   sprintf(buf, "%sContent-Type: %s\r\n\r\n", buf, filetype);
+    sprintf(buf, "HTTP/1.0 200 OK\r\n");
+    sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
+    sprintf(buf, "%sContent-Length: %d\r\n", buf, filesize);
+    sprintf(buf, "%sContent-Type: %s\r\n", buf, filetype);
    sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, Curr->request_arrival.tv_sec, Curr->request_arrival.tv_usec);
    sprintf(buf, "%sStat-Req-Dispatch:: %ld.%06ld\r\n", buf, time.tv_sec, time.tv_usec);
    sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, threadStats->threadId);
@@ -181,9 +176,9 @@ void requestServeStatic(int fd, char *filename, int filesize,ClientRequest Curr,
 
     Rio_writen(fd, buf, strlen(buf));
 
-   //  Writes out to the client socket the memory-mapped file 
-   Rio_writen(fd, srcp, filesize);
-   Munmap(srcp, filesize);
+    //  Writes out to the client socket the memory-mapped file
+    Rio_writen(fd, srcp, filesize);
+    Munmap(srcp, filesize);
 
 }
 
@@ -226,6 +221,7 @@ void requestHandle(int fd, ClientRequest Curr, ThreadStats* threadStats)
          requestError(fd, filename, "403", "Forbidden", "OS-HW3 Server could not run this CGI program" , Curr, threadStats);
          return;
       }
+       fprintf(stderr,"hi im here");
       requestServeDynamic(fd, filename, cgiargs,Curr, threadStats);
    }
 }
