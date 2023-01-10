@@ -45,22 +45,22 @@ pthread_mutex_t active_queue_mutex;///////no one change the active queue
 
 pthread_cond_t queue_not_empty;///send when not empty
 pthread_cond_t queue_not_full;///send when not full
-
+///////////////////////////////
 int* waiting_connections_queue;
 int* active_connections_list;
 ClientRequest* requestsArray;
-
+////////////////////////////////
 int active_connections_counter;
 int waiting_connections_counter;
 
 void enqueueConnection(int connfd, int max_queue_size, struct timeval req_arrival_time) { // TODO: remove second arg and assert
-    waiting_connections_queue[waiting_connections_counter] = connfd;
-    requestsArray[waiting_connections_counter]->request_fd=connfd;
-    requestsArray[waiting_connections_counter]->request_arrival=req_arrival_time;
+    requestsArray[waiting_connections_counter].request_fd=connfd;
+    requestsArray[waiting_connections_counter].request_arrival=req_arrival_time;
     waiting_connections_counter++;
 }
 
 void *startHandlerThread(void* args) {
+    ClientRequest Curr;
 
     while (1) {
         pthread_mutex_lock(&queue_mutex);
@@ -70,36 +70,34 @@ void *startHandlerThread(void* args) {
         ////part3
         struct timeval nowDispatching;
         gettimeofday(&nowDispatching, NULL);
-        ClientRequest Curr= requestsArray[0];
-        Curr->request_dispatch=nowDispatching;
-        //////////////////////////////////////
-        int connfd = waiting_connections_queue[0];
-        Curr->request_arrival=requestsArray[0]->request_arrival;
-        Curr->request_fd=connfd;
+        ////////////////////////////////////////
+        Curr= requestsArray[0];
+        Curr.request_dispatch=nowDispatching;
+        Curr.request_arrival=requestsArray[0].request_arrival;
+        Curr.request_fd=requestsArray[0].request_fd;
+        //////////////////////////////////////ss
         for (int i = 0; i < waiting_connections_counter - 1; i++) {
-            waiting_connections_queue[i] = waiting_connections_queue[i + 1];
-            requestsArray[i]->request_fd=requestsArray[i+1]->request_fd;
-            requestsArray[i]->request_arrival=requestsArray[i+1]->request_arrival;
+            requestsArray[i].request_fd=requestsArray[i+1].request_fd;
+            requestsArray[i].request_arrival=requestsArray[i+1].request_arrival;
         }
         waiting_connections_counter--;
-        waiting_connections_queue[waiting_connections_counter]=-1;
-        pthread_cond_broadcast(&queue_not_full);
+        pthread_cond_signal(&queue_not_full);
         pthread_mutex_unlock(&queue_mutex);
 
 //////////////////////////////////////////////////////////////////////////
 // POTENTIAL BUG:: Should active_connections and waiting connections have the same mutex?
-        pthread_mutex_lock(&active_queue_mutex);
+        pthread_mutex_lock(&queue_mutex);
         active_connections_counter++;
-        pthread_mutex_unlock(&active_queue_mutex);
+        pthread_mutex_unlock(&queue_mutex);
 /////////////////////////////////////////////////////////////////////////
-        requestHandle(Curr->request_fd,Curr, (ThreadStats*)args);
-        Close(Curr->request_fd);
+        requestHandle(Curr.request_fd,Curr, (ThreadStats*)args);
+        Close(Curr.request_fd);
 ///////////////////////////////////////////////////////////////////////////
-        pthread_mutex_lock(&active_queue_mutex);
+        pthread_mutex_lock(&queue_mutex);
         active_connections_counter--;
+        pthread_mutex_unlock(&queue_mutex);
         pthread_cond_signal(&queue_not_full); //brodcast or signal ? // and when?
-        pthread_mutex_unlock(&active_queue_mutex);
-        
+
     }
 }
 
@@ -112,19 +110,14 @@ int main(int argc, char *argv[])
 
     getargs(&port, &threads, &queue_size, &schedalg, argc, argv);
     // init queue
-    waiting_connections_queue = malloc(sizeof(int) * queue_size);
-    if (waiting_connections_queue == NULL) {
-        exit(1);
-    }
+
     active_connections_list = malloc(sizeof(int) * queue_size);
     if (active_connections_list == NULL) {
         exit(1);
     }
 
-    requestsArray = (ClientRequest*)malloc(queue_size * sizeof(ClientRequest*)); /// for part3
-    for (int i=0; i < queue_size; ++i){
-        requestsArray[i] =  malloc(sizeof(struct clientRequest));
-    }
+    requestsArray = (ClientRequest*)malloc(queue_size * sizeof(ClientRequest)); /// for part3
+
 
     active_connections_counter = 0;
     waiting_connections_counter = 0;
@@ -168,6 +161,7 @@ int main(int argc, char *argv[])
 
         ///////here starts the fun
         pthread_mutex_lock(&queue_mutex);//no one should change here but me,no other god here except me
+
         while (waiting_connections_counter + active_connections_counter >= queue_size) {
 
             if (schedalg == BLOCK) {
@@ -189,15 +183,14 @@ int main(int argc, char *argv[])
                     pthread_mutex_unlock(&queue_mutex);
                 }
                 waiting_connections_counter--;
-                int oldestRequest = waiting_connections_queue[0]; //sama made sure that the oldest is always in 0 ?
+                int oldestRequest = requestsArray[0].request_fd; //sama made sure that the oldest is always in 0 ?
                 close(oldestRequest);
                 for (int i = 0; i < waiting_connections_counter; ++i) {
-                    requestsArray[i]->request_fd = requestsArray[i + 1]->request_fd;
-                    requestsArray[i]->request_arrival = requestsArray[i + 1]->request_arrival;
-                    waiting_connections_queue[i] = waiting_connections_queue[i + 1];
+                    requestsArray[i].request_fd = requestsArray[i + 1].request_fd;
+                    requestsArray[i].request_arrival = requestsArray[i + 1].request_arrival;
                 }
-                waiting_connections_queue[waiting_connections_counter]=-1;
                 pthread_mutex_unlock(&queue_mutex);
+
             } else if (schedalg == RANDOM) {
 
             }
@@ -213,9 +206,8 @@ int main(int argc, char *argv[])
 
 
         enqueueConnection(connfd,queue_size,now_arriving);
-
-        pthread_mutex_unlock(&queue_mutex);
         pthread_cond_signal(&queue_not_empty);
+        pthread_mutex_unlock(&queue_mutex);
     }
 
 
