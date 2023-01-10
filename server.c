@@ -41,7 +41,6 @@ void getargs(int *port, int* threads, int* queue_size, enum SchedAlg* schedalg, 
 }
 
 pthread_mutex_t queue_mutex;///no one change the req_mux and waiting
-pthread_mutex_t active_queue_mutex;///////no one change the active queue
 
 pthread_cond_t queue_not_empty;///send when not empty
 pthread_cond_t queue_not_full;///send when not full
@@ -59,45 +58,37 @@ void enqueueConnection(int connfd, int max_queue_size, struct timeval req_arriva
     waiting_connections_counter++;
 }
 
-void *startHandlerThread(void* args) {
-    ClientRequest Curr;
-
-    while (1) {
+void dequeueConnection(ClientRequest* requestStats) {
         pthread_mutex_lock(&queue_mutex);
         while (waiting_connections_counter == 0) {
             pthread_cond_wait(&queue_not_empty, &queue_mutex);
         }
-        ////part3
+        // dequeueing requestStats into input
         struct timeval nowDispatching;
         gettimeofday(&nowDispatching, NULL);
-        ////////////////////////////////////////
-        Curr= requestsArray[0];
-        Curr.request_dispatch=nowDispatching;
-        Curr.request_arrival=requestsArray[0].request_arrival;
-        Curr.request_fd=requestsArray[0].request_fd;
-        //////////////////////////////////////ss
+        *requestStats = requestsArray[0];
+        requestStats->request_dispatch=nowDispatching;
         for (int i = 0; i < waiting_connections_counter - 1; i++) {
             requestsArray[i].request_fd=requestsArray[i+1].request_fd;
             requestsArray[i].request_arrival=requestsArray[i+1].request_arrival;
         }
         waiting_connections_counter--;
+        active_connections_counter++;
         pthread_cond_signal(&queue_not_full);
         pthread_mutex_unlock(&queue_mutex);
+}
 
-//////////////////////////////////////////////////////////////////////////
-// POTENTIAL BUG:: Should active_connections and waiting connections have the same mutex?
-        pthread_mutex_lock(&queue_mutex);
-        active_connections_counter++;
-        pthread_mutex_unlock(&queue_mutex);
-/////////////////////////////////////////////////////////////////////////
-        requestHandle(Curr.request_fd,Curr, (ThreadStats*)args);
-        Close(Curr.request_fd);
-///////////////////////////////////////////////////////////////////////////
+void *startHandlerThread(void* args) {
+    ClientRequest requestStats;
+    while (1) {
+        dequeueConnection(&requestStats);
+        requestHandle(requestStats.request_fd,requestStats, (ThreadStats*)args);
+        Close(requestStats.request_fd);
+        ///////////////////////////////////////////////////////////////////////////
         pthread_mutex_lock(&queue_mutex);
         active_connections_counter--;
-        pthread_mutex_unlock(&queue_mutex);
         pthread_cond_signal(&queue_not_full); //brodcast or signal ? // and when?
-
+        pthread_mutex_unlock(&queue_mutex);
     }
 }
 
@@ -124,7 +115,6 @@ int main(int argc, char *argv[])
 
 ///init all
     pthread_mutex_init(&queue_mutex, NULL);
-    pthread_mutex_init(&active_queue_mutex,NULL);
     //////////////////////////////////////////////////////////////
     pthread_cond_init(&queue_not_empty, NULL);
     pthread_cond_init(&queue_not_full, NULL);
@@ -230,6 +220,7 @@ int main(int argc, char *argv[])
 
     pthread_mutex_destroy(&queue_mutex);
     pthread_cond_destroy(&queue_not_empty);
+    pthread_cond_destroy(&queue_not_full);
 
     return 0;
 }
